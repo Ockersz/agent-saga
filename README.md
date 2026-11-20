@@ -58,11 +58,11 @@ sequenceDiagram
     participant GW as AgentSaga Gateway
     participant Payroll as Payroll Microservice (DB)
 
-    Agent->>GW: POST /api/v1/payroll/settlement<br/>{ employeeId: "EMP-00104", currency: "BITCOIN" }
-    Note over GW: Intercepted at Network Edge<br/>Validating against OpenAPI 3.1 Contract
-    Note over GW: ❌ Contract Violation Detected:<br/>• Missing required property: 'amount'<br/>• Disallowed enum value: 'BITCOIN'
-    GW-->>Agent: HTTP 400 Bad Request (Violations Payload)<br/>⏱️ Latency: 1.25ms
-    Note over Payroll: 🛡️ Downstream Protected: 0 calls forwarded, 0 DB writes
+    Agent->>GW: POST /api/v1/payroll/settlement
+    Note over GW: Intercepted at Network Edge
+    Note over GW: Contract Violation Detected:<br/>Missing amount, Invalid currency
+    GW-->>Agent: HTTP 400 Bad Request (Violations Array)
+    Note over Payroll: Downstream Protected: 0 calls forwarded, 0 DB writes
 ```
 
 ---
@@ -79,32 +79,32 @@ sequenceDiagram
     participant Payroll as Payroll Microservice
     participant Email as Notification Microservice
 
-    Note over Agent,Email: [Phase 1: Forward Execution]
-    Agent->>GW: Step 1: POST /hr/employees/EMP-00104/status (INACTIVE)
-    GW->>HR: Forward: Set status -> INACTIVE
+    Note over Agent,Email: Phase 1 - Forward Execution
+    Agent->>GW: Step 1 - POST /hr/employees/EMP-00104/status
+    GW->>HR: Forward - Set status to INACTIVE
     HR-->>GW: 200 OK (Status Updated)
     Note over GW: Journaled Step 1 (Compensatable)
     GW-->>Agent: 200 OK
 
-    Agent->>GW: Step 2: POST /payroll/settlement (Deduct fee)
-    GW->>Payroll: Forward: Record deduction
+    Agent->>GW: Step 2 - POST /payroll/settlement
+    GW->>Payroll: Forward - Record deduction
     Payroll-->>GW: 201 Created (settlementId: uuid-88)
     Note over GW: Journaled Step 2 (Compensatable)
     GW-->>Agent: 201 Created
 
-    Agent->>GW: Step 3: POST /notifications/clearance-email
-    GW->>Email: Forward: Dispatch email
-    Email-->>GW: ❌ HTTP 504 Gateway Timeout (SMTP Relay Dead)
-    Note over GW: ⚠️ Downstream Failure Detected! Activating SAGA Rollback
+    Agent->>GW: Step 3 - POST /notifications/clearance-email
+    GW->>Email: Forward - Dispatch email
+    Email-->>GW: 504 Gateway Timeout (SMTP Relay Dead)
+    Note over GW: Failure Detected - Activating SAGA Rollback
 
-    Note over Agent,Email: [Phase 2: Automated Backward Recovery (Reverse Topological Order)]
-    GW->>Payroll: Inverse Step 2: POST /settlement/uuid-88/reversal
-    Payroll-->>GW: 200 OK (Settlement marked REVERSED)
+    Note over Agent,Email: Phase 2 - Automated Backward Recovery (Reverse Order)
+    GW->>Payroll: Inverse Step 2 - POST /settlement/uuid-88/reversal
+    Payroll-->>GW: 200 OK (Settlement REVERSED)
 
-    GW->>HR: Inverse Step 1: POST /hr/employees/EMP-00104/status (ACTIVE)
+    GW->>HR: Inverse Step 1 - POST /hr/employees/EMP-00104/status
     HR-->>GW: 200 OK (Status restored to ACTIVE)
 
-    GW-->>Agent: HTTP 502 Bad Gateway (SAGA Compensation Complete)<br/>All databases cleanly restored to baseline!
+    GW-->>Agent: 502 Bad Gateway - SAGA Compensation Complete
 ```
 
 ---
