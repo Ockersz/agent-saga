@@ -59,9 +59,23 @@ jobs:
           npm run build
 
   benchmark-eval:
-    name: Live End-to-End HTTP Benchmark
+    name: Live HTTP & PostgreSQL 16 Benchmark
     needs: [gateway-test, services-build]
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: saga_admin
+          POSTGRES_PASSWORD: saga_secure_password
+          POSTGRES_DB: agentsaga_journal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -80,11 +94,25 @@ jobs:
           cd gateway && npm ci && npm run build
           cd ../services && npm ci && npm run build
 
+      - name: Initialize PostgreSQL 16 SAGA Schema
+        run: |
+          node -e '
+            const fs = require("fs");
+            const { Pool } = require("./gateway/node_modules/pg");
+            const sql = fs.readFileSync("./gateway/src/database/schema.sql", "utf8");
+            const pool = new Pool({ connectionString: "postgres://saga_admin:saga_secure_password@127.0.0.1:5432/agentsaga_journal" });
+            pool.query(sql).then(() => { console.log("Schema applied"); return pool.end(); }).catch(e => { console.error(e); process.exit(1); });
+          '
+
       - name: Install Benchmark Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r eval-harness/requirements.txt
 
-      - name: Run Live End-to-End HTTP Benchmark (200 workflows)
+      - name: Run Live End-to-End HTTP Benchmark with PostgreSQL 16 Journal (100 workflows)
         run: |
-          python eval-harness/benchmark_runner.py --spawn-local --runs 200
+          python eval-harness/benchmark_runner.py --spawn-local --runs 100 --database-url postgres://saga_admin:saga_secure_password@127.0.0.1:5432/agentsaga_journal
+
+      - name: Run Concurrent Multi-Agent Isolation Benchmark (60 flows/tier)
+        run: |
+          python eval-harness/concurrency_benchmark.py --spawn-local --workflows-per-tier 60

@@ -26,13 +26,15 @@ This document outlines the development lifecycle, feature releases, and experime
   - Schema & type hallucinations (missing fields, enum drift, path regex violations, string-for-number type drift).
   - Policy threshold violations (unauthorized monetary limits).
   - Downstream HTTP 504 gateway timeout aborts + post-abort pivot replay verification.
-- [x] **Live Empirical Metrics Collection (N = 1,000):**
+- [x] **Live Empirical Metrics Collection (N = 1,000 + 800 Concurrent):**
   - Schema defect interception: 100.0% blocked at edge (`400 Bad Request`, 0 DB mutations).
   - Policy threshold enforcement: 100.0% blocked at gate (`403 Forbidden`, 0 DB mutations).
   - Distributed state recovery: 100.0% restored via SAGA rollback + 100.0% post-abort pivot blocking.
   - Runtime latency overhead: Schema + Policy Gate `P50 = 0.03ms` / `P95 = 0.04ms`; End-to-End Proxy Hop Delta `P50 = 1.80ms` / `P95 = 2.42ms`.
-- [x] **Publication Figures Generated:** `paper/figures/fig1_safety_and_recovery.png`, `paper/figures/fig2_latency_cdf.png`, `paper/figures/fig_system_architecture.png`, `paper/figures/fig_process_lifecycle.png`.
-- [x] **Camera-Ready Research Manuscript Draft:** Complete IEEE conference manuscript with live empirical benchmarks, declarative contract listing, and formal SAGA mediation algorithm (`paper/main.tex`).
+  - Concurrency scaling (`C = 1..50`, `eval-harness/concurrency_benchmark.py`): Peak `708.1 req/s` (`C = 10`), `100.0%` cross-workflow state isolation up to `C = 50`.
+- [x] **PostgreSQL 16 CI Integration & Live LLM Evaluator:** CI runs live PostgreSQL 16 durable SAGA journal benchmarks on every push (`.github/workflows/ci.yml`), plus optional live Gemini evaluator (`eval-harness/live_llm_agent_eval.py`).
+- [x] **Publication Figures Generated:** `paper/figures/fig1_safety_and_recovery.png`, `paper/figures/fig2_latency_cdf.png`, `paper/figures/fig3_concurrency_scaling.png`, `paper/figures/fig_system_architecture.png`, `paper/figures/fig_process_lifecycle.png`.
+- [x] **Camera-Ready Research Manuscript Draft:** Complete IEEE conference manuscript with live empirical benchmarks, concurrency scaling, declarative contract listing, formal SAGA mediation algorithm, and `\DOUBLEBLIND` toggle (`paper/main.tex`).
 
 ### Phase 4: Production Hardening & Ecosystem Integrations (v1.0.0-GA)
 - [ ] **MCP (Model Context Protocol) Bridge:** Native adapter exposing verified microservice tool registries to Anthropic MCP clients.

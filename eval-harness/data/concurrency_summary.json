@@ -1,0 +1,58 @@
+{
+  "workflows_per_tier": 200,
+  "total_workflows": 800,
+  "environment": {
+    "os": "Windows 11",
+    "python": "3.12.10"
+  },
+  "tiers": [
+    {
+      "concurrency": 1,
+      "workflows": 200,
+      "client_requests": 600,
+      "duration_s": 2.27,
+      "throughput_rps": 264.3,
+      "workflows_per_sec": 88.1,
+      "step_latency_p50_ms": 3.36,
+      "step_latency_p95_ms": 5.89,
+      "step_latency_p99_ms": 7.16,
+      "isolation_verified_pct": 100.0
+    },
+    {
+      "concurrency": 10,
+      "workflows": 200,
+      "client_requests": 600,
+      "duration_s": 0.847,
+      "throughput_rps": 708.1,
+      "workflows_per_sec": 236.0,
+      "step_latency_p50_ms": 12.67,
+      "step_latency_p95_ms": 22.48,
+      "step_latency_p99_ms": 28.01,
+      "isolation_verified_pct": 100.0
+    },
+    {
+      "concurrency": 25,
+      "workflows": 200,
+      "client_requests": 600,
+      "duration_s": 0.876,
+      "throughput_rps": 684.7,
+      "workflows_per_sec": 228.2,
+      "step_latency_p50_ms": 30.85,
+      "step_latency_p95_ms": 59.09,
+      "step_latency_p99_ms": 76.37,
+      "isolation_verified_pct": 100.0
+    },
+    {
+      "concurrency": 50,
+      "workflows": 200,
+      "client_requests": 600,
+      "duration_s": 0.946,
+      "throughput_rps": 634.5,
+      "workflows_per_sec": 211.5,
+      "step_latency_p50_ms": 63.23,
+      "step_latency_p95_ms": 125.1,
+      "step_latency_p99_ms": 137.98,
+      "isolation_verified_pct": 100.0
+    }
+  ]
+}

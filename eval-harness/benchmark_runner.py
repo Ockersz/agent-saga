@@ -39,7 +39,9 @@ def wait_until_ready(session: requests.Session, url: str, name: str, timeout_s: 
     raise RuntimeError(f"Timed out waiting for {name} at {url}")
 
 
-def start_local_processes(repo_root: str) -> Tuple[subprocess.Popen, subprocess.Popen]:
+def start_local_processes(
+    repo_root: str, database_url: str = ""
+) -> Tuple[subprocess.Popen, subprocess.Popen]:
     services_entry = os.path.join(repo_root, "services", "dist", "server.js")
     gateway_entry = os.path.join(repo_root, "gateway", "dist", "main.js")
     contracts_dir = os.path.join(repo_root, "contracts")
@@ -59,6 +61,10 @@ def start_local_processes(repo_root: str) -> Tuple[subprocess.Popen, subprocess.
     env_gateway["CONTRACTS_DIR"] = contracts_dir
     env_gateway["POLICY_MAX_AMOUNT"] = "500000"
     env_gateway["BENCHMARK_QUIET"] = "1"
+    if database_url:
+        env_gateway["DATABASE_URL"] = database_url
+    else:
+        env_gateway.pop("DATABASE_URL", None)
 
     svc_proc = subprocess.Popen(
         ["node", services_entry],
@@ -141,7 +147,9 @@ def run_warmup(session: requests.Session, services_url: str, gateway_url: str, c
         assert r_notif.status_code == 202, f"Warmup Notification failed: {r_notif.text}"
 
 
-def run_live_benchmark(runs: int, services_url: str, gateway_url: str, spawn_local: bool):
+def run_live_benchmark(
+    runs: int, services_url: str, gateway_url: str, spawn_local: bool, database_url: str = ""
+):
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.makedirs(os.path.join(repo_root, "paper", "figures"), exist_ok=True)
     os.makedirs(os.path.join(repo_root, "eval-harness", "data"), exist_ok=True)
@@ -156,7 +164,7 @@ def run_live_benchmark(runs: int, services_url: str, gateway_url: str, spawn_loc
         )
         if spawn_local and not already_up:
             print("Starting local Enterprise Services (:3000) & AgentSaga Gateway (:8080)...")
-            svc_proc, gw_proc = start_local_processes(repo_root)
+            svc_proc, gw_proc = start_local_processes(repo_root, database_url=database_url)
             wait_until_ready(session, f"{services_url}/api/v1/state", "Enterprise Services")
             wait_until_ready(session, f"{gateway_url}/health", "AgentSaga Gateway")
         elif not already_up:
@@ -588,6 +596,7 @@ def run_live_benchmark(runs: int, services_url: str, gateway_url: str, spawn_loc
 
         summary = {
             "runs": int(len(df)),
+            "journal_mode": "postgresql" if database_url else "in-memory",
             "breakdown": {
                 "nominal": int(len(nom_df)),
                 "schema_hallucination": int(len(schema_df)),
@@ -775,9 +784,10 @@ def main():
     parser.add_argument("--gateway-url", default="http://127.0.0.1:8080", help="Base URL for AgentSaga gateway")
     parser.add_argument("--spawn-local", action="store_true", default=True, help="Spawn local Node processes if ports are down")
     parser.add_argument("--no-spawn", dest="spawn_local", action="store_false", help="Fail instead of spawning local processes")
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""), help="Optional PostgreSQL connection string for durable SAGA journal mode")
     args = parser.parse_args()
 
-    run_live_benchmark(args.runs, args.services_url, args.gateway_url, args.spawn_local)
+    run_live_benchmark(args.runs, args.services_url, args.gateway_url, args.spawn_local, database_url=args.database_url)
 
 
 if __name__ == "__main__":
