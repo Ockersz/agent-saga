@@ -1,0 +1,22 @@
+{
+  "name": "enterprise-mock-services",
+  "version": "0.1.0",
+  "description": "Mock Enterprise Microservices (HR, Payroll, Notifications) for AgentSaga Testbed",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:dev": "ts-node src/server.ts"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.1",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}

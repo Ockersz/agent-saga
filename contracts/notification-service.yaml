@@ -1,0 +1,47 @@
+openapi: 3.1.0
+info:
+  title: Enterprise Notification & Dispatch Service
+  version: 1.0.0
+  description: Handles physical dispatches, email communications, and clearance letters.
+paths:
+  /api/v1/notifications/clearance-email:
+    post:
+      summary: Dispatch formal clearance and settlement letter to employee
+      operationId: dispatchClearanceEmail
+      # Pivot action: Irreversible side effect. Must be the final committed step.
+      x-agentsaga-action-type: pivot
+      x-agentsaga-risk-level: medium
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, recipientEmail, settlementId, subject]
+              properties:
+                employeeId:
+                  type: string
+                  pattern: "^EMP-[0-9]{5}$"
+                recipientEmail:
+                  type: string
+                  format: email
+                settlementId:
+                  type: string
+                  format: uuid
+                subject:
+                  type: string
+                  minLength: 3
+      responses:
+        '202':
+          description: Email queued for immediate delivery
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deliveryId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [QUEUED, SENT]

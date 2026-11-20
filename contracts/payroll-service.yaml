@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: Enterprise Payroll & Settlement Service
+  version: 1.0.0
+  description: Handles financial settlements, equipment deductions, and payroll holds.
+paths:
+  /api/v1/payroll/settlement:
+    post:
+      summary: Execute employee settlement deduction or payout
+      operationId: executeSettlement
+      x-agentsaga-action-type: compensatable
+      x-agentsaga-risk-level: high
+      x-agentsaga-compensating-action:
+        path: /api/v1/payroll/settlement/{settlementId}/reversal
+        method: POST
+        mapping:
+          settlementId: "$.response.body.settlementId"
+          reason: "Automated SAGA rollback due to downstream workflow abort"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, amount, currency, settlementType, reason]
+              properties:
+                employeeId:
+                  type: string
+                  pattern: "^EMP-[0-9]{5}$"
+                amount:
+                  type: number
+                  minimum: 0.01
+                  maximum: 1000000.00
+                currency:
+                  type: string
+                  enum: [LKR, USD, EUR, GBP]
+                settlementType:
+                  type: string
+                  enum: [EQUIPMENT_DEDUCTION, SEVERANCE_PAY, UNPAID_LEAVE_DEDUCTION, BONUS_SETTLEMENT]
+                reason:
+                  type: string
+                  minLength: 5
+      responses:
+        '201':
+          description: Settlement recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settlementId:
+                    type: string
+                    format: uuid
+                  employeeId:
+                    type: string
+                  amount:
+                    type: number
+                  currency:
+                    type: string
+                  status:
+                    type: string
+                    enum: [PENDING_AUDIT, POSTED, REVERSED]
+
+  /api/v1/payroll/settlement/{settlementId}/reversal:
+    post:
+      summary: Reverse an existing settlement transaction
+      operationId: reverseSettlement
+      x-agentsaga-action-type: retriable
+      x-agentsaga-risk-level: high
+      parameters:
+        - name: settlementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Settlement reversed successfully
