@@ -8,7 +8,10 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import axios from 'axios';
+import * as http from 'http';
+import * as https from 'https';
 import { ContractValidatorService } from '../validator/contract-validator.service';
+import { PolicyEvaluatorService } from '../policy/policy-evaluator.service';
 import { SagaJournalService } from '../saga/saga-journal.service';
 import { SagaCompensatorService } from '../saga/saga-compensator.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,9 +19,12 @@ import { v4 as uuidv4 } from 'uuid';
 @Controller('proxy')
 export class GatewayProxyController {
   private readonly logger = new Logger(GatewayProxyController.name);
+  private readonly httpAgent = new http.Agent({ keepAlive: true, maxSockets: 128 });
+  private readonly httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 128 });
 
   constructor(
     private readonly validator: ContractValidatorService,
+    private readonly policy: PolicyEvaluatorService,
     private readonly journal: SagaJournalService,
     private readonly compensator: SagaCompensatorService
   ) {}
@@ -27,7 +33,6 @@ export class GatewayProxyController {
   async handleProxy(@Req() req: Request, @Res() res: Response) {
     const startTime = performance.now();
     const method = req.method;
-    // Extract target path after /proxy
     const targetPath = req.path.replace(/^\/proxy/, '') || '/';
     const body = req.body || {};
 
@@ -43,6 +48,8 @@ export class GatewayProxyController {
     const validation = this.validator.validateRequest(method, targetPath, body);
     if (!validation.valid) {
       this.logger.warn(`Contract Violation on ${targetPath}. Intercepting at network boundary.`);
+      res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-overhead-ms', (performance.now() - startTime).toFixed(3));
       return res.status(HttpStatus.BAD_REQUEST).json({
         statusCode: 400,
         error: 'AgentSaga Contract Violation',
@@ -56,10 +63,68 @@ export class GatewayProxyController {
 
     const contract = validation.contract!;
 
-    // 2. Ensure Workflow is registered in Journal
-    await this.journal.getOrCreateWorkflow(workflowId, agentId);
+    // 2. Dynamic Policy & Risk Invariant Gate
+    const policyResult = this.policy.evaluate(contract, body, req.headers as Record<string, any>);
+    if (!policyResult.allowed) {
+      res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-policy-ms', policyResult.policyLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-overhead-ms', (performance.now() - startTime).toFixed(3));
+      return res.status(HttpStatus.FORBIDDEN).json({
+        statusCode: 403,
+        error: 'AgentSaga Policy Violation',
+        ruleViolated: policyResult.ruleViolated,
+        message: policyResult.reason,
+        targetPath,
+        method,
+      });
+    }
 
-    // 3. Pre-record Step in SAGA Journal
+    // 3. Ensure Workflow is active and enforce Pivot Invariant (Eq. 4)
+    const workflow = await this.journal.getOrCreateWorkflow(workflowId, agentId);
+    if (
+      workflow.status === 'FAILED' ||
+      workflow.status === 'COMPENSATED' ||
+      workflow.status === 'COMPENSATING'
+    ) {
+      res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-policy-ms', policyResult.policyLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-overhead-ms', (performance.now() - startTime).toFixed(3));
+      return res.status(HttpStatus.CONFLICT).json({
+        statusCode: 409,
+        error: 'AgentSaga Workflow Aborted',
+        message: `Cannot execute further steps on workflow '${workflowId}' with status '${workflow.status}'.`,
+      });
+    }
+
+    if (contract.actionType === 'pivot') {
+      const priorSteps = await this.journal.getWorkflowSteps(workflowId);
+      const hasFailedOrCompensated = priorSteps.some(
+        s =>
+          s.status === 'FAILED' ||
+          s.status === 'COMPENSATED' ||
+          s.status === 'COMPENSATION_PENDING'
+      );
+      const antecedentSteps = priorSteps.filter(s => s.stepIndex < stepIndex);
+      const antecedentIncomplete =
+        stepIndex > 1 &&
+        (antecedentSteps.length === 0 ||
+          antecedentSteps.some(s => s.status !== 'EXECUTED'));
+
+      if (hasFailedOrCompensated || antecedentIncomplete) {
+        this.logger.warn(`Pivot invariant violated for workflow ${workflowId} on ${targetPath}`);
+        res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(3));
+        res.setHeader('x-agentsaga-policy-ms', policyResult.policyLatencyMs.toFixed(3));
+        res.setHeader('x-agentsaga-overhead-ms', (performance.now() - startTime).toFixed(3));
+        return res.status(HttpStatus.CONFLICT).json({
+          statusCode: 409,
+          error: 'AgentSaga Pivot Invariant Violation',
+          message:
+            'Terminal irreversible action blocked because antecedent steps are incomplete, failed, or compensated.',
+        });
+      }
+    }
+
+    // 4. Pre-record Step in SAGA Journal
     const stepRecord = await this.journal.recordStep({
       workflowId,
       stepIndex,
@@ -68,15 +133,26 @@ export class GatewayProxyController {
       httpMethod: method,
       actionType: contract.actionType,
       riskLevel: contract.riskLevel,
+      forwardPathParams: validation.pathParams,
       forwardRequestBody: body,
       compensatingPath: contract.compensatingAction?.path,
       compensatingMethod: contract.compensatingAction?.method,
+      compensatingMapping: contract.compensatingAction?.mapping,
       status: 'PENDING',
     });
 
-    // 4. Forward Call to Downstream Enterprise Service
+    // 5. Forward Call to Downstream Enterprise Service
     const upstreamBase = process.env.UPSTREAM_SERVICES_URL || 'http://localhost:3000';
     const downstreamUrl = `${upstreamBase}${targetPath}`;
+
+    const forwardHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-forwarded-by': 'AgentSaga-Gateway',
+      'x-saga-workflow-id': workflowId,
+    };
+    if (req.headers['x-simulate-failure']) {
+      forwardHeaders['x-simulate-failure'] = String(req.headers['x-simulate-failure']);
+    }
 
     try {
       const downstreamStart = performance.now();
@@ -84,12 +160,10 @@ export class GatewayProxyController {
         method: method.toLowerCase(),
         url: downstreamUrl,
         data: body,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-forwarded-by': 'AgentSaga-Gateway',
-          'x-saga-workflow-id': workflowId,
-        },
+        headers: forwardHeaders,
         timeout: 10000,
+        httpAgent: this.httpAgent,
+        httpsAgent: this.httpsAgent,
       });
       const downstreamLatency = performance.now() - downstreamStart;
 
@@ -102,9 +176,17 @@ export class GatewayProxyController {
         Math.round(downstreamLatency)
       );
 
+      if (contract.actionType === 'pivot') {
+        await this.journal.updateWorkflowStatus(workflowId, 'COMMITTED');
+      }
+
       const totalElapsed = performance.now() - startTime;
-      res.setHeader('x-agentsaga-latency-ms', totalElapsed.toFixed(2));
-      res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(2));
+      const gatewayOverhead = Math.max(0, totalElapsed - downstreamLatency);
+      res.setHeader('x-agentsaga-latency-ms', totalElapsed.toFixed(3));
+      res.setHeader('x-agentsaga-downstream-ms', downstreamLatency.toFixed(3));
+      res.setHeader('x-agentsaga-overhead-ms', gatewayOverhead.toFixed(3));
+      res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-policy-ms', policyResult.policyLatencyMs.toFixed(3));
 
       return res.status(response.status).json(response.data);
     } catch (downstreamError: any) {
@@ -125,9 +207,14 @@ export class GatewayProxyController {
         Math.round(totalElapsed)
       );
 
-      // 5. Trigger Automated SAGA Backward Recovery (Compensating Rollback)
+      // 6. Trigger Automated SAGA Backward Recovery (Compensating Rollback)
       this.logger.warn(`Triggering automated SAGA rollback for Workflow: ${workflowId}`);
       const rollbackResult = await this.compensator.compensateWorkflow(workflowId, upstreamBase);
+
+      const finishElapsed = performance.now() - startTime;
+      res.setHeader('x-agentsaga-latency-ms', finishElapsed.toFixed(3));
+      res.setHeader('x-agentsaga-validation-ms', validation.validationLatencyMs.toFixed(3));
+      res.setHeader('x-agentsaga-policy-ms', policyResult.policyLatencyMs.toFixed(3));
 
       return res.status(HttpStatus.BAD_GATEWAY).json({
         statusCode: 502,

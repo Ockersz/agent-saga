@@ -3,16 +3,20 @@ import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  const quiet = process.env.BENCHMARK_QUIET === '1';
   const logger = new Logger('AgentSagaGateway');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: quiet ? false : undefined,
+  });
 
-  // Enable CORS and raw/json parsing
   app.enableCors();
 
   const port = process.env.PORT || 8080;
   await app.listen(port);
-  logger.log(`🚀 AgentSaga-Gateway is listening on port ${port}`);
-  logger.log(`🛡️  Zero-Trust OpenAPI Validation & SAGA Rollback Engine Active`);
+  if (!quiet) {
+    logger.log(`AgentSaga-Gateway is listening on port ${port}`);
+    logger.log(`Zero-Trust OpenAPI Validation, Policy Gate & SAGA Rollback Engine Active`);
+  }
 }
 
 bootstrap();

@@ -3,6 +3,16 @@ import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 app.use(express.json());
+const QUIET = process.env.BENCHMARK_QUIET === '1';
+const logInfo = (...args: any[]) => {
+  if (!QUIET) console.log(...args);
+};
+const logWarn = (...args: any[]) => {
+  if (!QUIET) console.warn(...args);
+};
+const logErr = (...args: any[]) => {
+  if (!QUIET) console.error(...args);
+};
 
 // In-Memory Database State for Enterprise Microservices
 interface DatabaseState {
@@ -27,9 +37,11 @@ db.employees.set('EMP-00104', {
 
 // Logging middleware
 app.use((req, res, next) => {
-  const forwardedBy = req.headers['x-forwarded-by'];
-  const workflowId = req.headers['x-saga-workflow-id'];
-  console.log(`[Services Mesh] ${req.method} ${req.url} (Forwarded: ${forwardedBy || 'Direct'}, Workflow: ${workflowId || 'None'})`);
+  if (!QUIET) {
+    const forwardedBy = req.headers['x-forwarded-by'];
+    const workflowId = req.headers['x-saga-workflow-id'];
+    logInfo(`[Services Mesh] ${req.method} ${req.url} (Forwarded: ${forwardedBy || 'Direct'}, Workflow: ${workflowId || 'None'})`);
+  }
   next();
 });
 
@@ -53,7 +65,7 @@ app.post('/api/v1/hr/employees/:employeeId/status', (req: Request, res: Response
   existing.updatedAt = new Date();
   db.employees.set(employeeId, existing);
 
-  console.log(`[HR Service] Employee ${employeeId} status changed from ${previousStatus} -> ${status}`);
+  logInfo(`[HR Service] Employee ${employeeId} status changed from ${previousStatus} -> ${status}`);
 
   return res.status(200).json({
     employeeId,
@@ -71,7 +83,7 @@ app.post('/api/v1/payroll/settlement', (req: Request, res: Response) => {
 
   // Check for simulated downstream failure
   if (req.headers['x-simulate-failure'] === 'payroll' || req.body.simulateFailure === true) {
-    console.error(`[Payroll Service] INJECTED FAILURE: Database lock timeout simulation.`);
+    logErr(`[Payroll Service] INJECTED FAILURE: Database lock timeout simulation.`);
     return res.status(500).json({
       error: 'InternalServerError',
       message: 'Simulated database deadlock during payroll settlement write.',
@@ -87,7 +99,7 @@ app.post('/api/v1/payroll/settlement', (req: Request, res: Response) => {
     status: 'POSTED',
   });
 
-  console.log(`[Payroll Service] Recorded settlement ${settlementId} of ${amount} ${currency} for ${employeeId}`);
+  logInfo(`[Payroll Service] Recorded settlement ${settlementId} of ${amount} ${currency} for ${employeeId}`);
 
   return res.status(201).json({
     settlementId,
@@ -110,7 +122,7 @@ app.post('/api/v1/payroll/settlement/:settlementId/reversal', (req: Request, res
   settlement.status = 'REVERSED';
   db.settlements.set(settlementId, settlement);
 
-  console.warn(`[Payroll Service] SAGA REVERSAL EXECUTED: Settlement ${settlementId} is now REVERSED. Reason: ${reason}`);
+  logWarn(`[Payroll Service] SAGA REVERSAL EXECUTED: Settlement ${settlementId} is now REVERSED. Reason: ${reason}`);
 
   return res.status(200).json({
     settlementId,
@@ -128,7 +140,7 @@ app.post('/api/v1/notifications/clearance-email', (req: Request, res: Response) 
 
   // Check for simulated downstream failure on the terminal pivot step
   if (req.headers['x-simulate-failure'] === 'notification' || req.body.simulateFailure === true) {
-    console.error(`[Notification Service] INJECTED FAILURE: SMTP Relay Timeout 504.`);
+    logErr(`[Notification Service] INJECTED FAILURE: SMTP Relay Timeout 504.`);
     return res.status(504).json({
       error: 'GatewayTimeout',
       message: 'SMTP external dispatch server failed to acknowledge receipt.',
@@ -143,7 +155,7 @@ app.post('/api/v1/notifications/clearance-email', (req: Request, res: Response) 
     status: 'SENT',
   });
 
-  console.log(`[Notification Service] PIVOT EXECUTED: Clearance letter dispatched to ${recipientEmail}`);
+  logInfo(`[Notification Service] PIVOT EXECUTED: Clearance letter dispatched to ${recipientEmail}`);
 
   return res.status(202).json({
     deliveryId,
@@ -172,7 +184,7 @@ app.post('/api/v1/reset', (req: Request, res: Response) => {
     reason: 'Initial employment record',
     updatedAt: new Date(),
   });
-  console.log(`[Services Mesh] State reset to clean baseline.`);
+  logInfo(`[Services Mesh] State reset to clean baseline.`);
   return res.json({ status: 'RESET_COMPLETED' });
 });
 

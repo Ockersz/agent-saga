@@ -4,6 +4,7 @@ import { ContractRegistryService, EndpointContract } from '../contracts/contract
 export interface ValidationResult {
   valid: boolean;
   contract?: EndpointContract;
+  pathParams?: Record<string, string>;
   errors?: Array<{
     field: string;
     message: string;
@@ -38,12 +39,39 @@ export class ContractValidatorService {
       };
     }
 
+    const pathParams = this.registry.extractPathParams(contract.path, path);
+
+    if (contract.pathParamValidator) {
+      const pathValid = contract.pathParamValidator(pathParams);
+      if (!pathValid) {
+        const elapsed = performance.now() - startTime;
+        const errors = (contract.pathParamValidator.errors || []).map(err => ({
+          field: `path${err.instancePath || ''}`,
+          message: err.message || 'Path parameter validation error',
+          keyword: err.keyword,
+          params: err.params,
+        }));
+
+        this.logger.warn(
+          `Path contract violation on [${method.toUpperCase()}] ${path}: ${JSON.stringify(errors)}`
+        );
+
+        return {
+          valid: false,
+          contract,
+          pathParams,
+          errors,
+          validationLatencyMs: elapsed,
+        };
+      }
+    }
+
     if (!contract.validator) {
-      // Endpoint has no requestBody schema, passes validation
       const elapsed = performance.now() - startTime;
       return {
         valid: true,
         contract,
+        pathParams,
         validationLatencyMs: elapsed,
       };
     }
@@ -66,6 +94,7 @@ export class ContractValidatorService {
       return {
         valid: false,
         contract,
+        pathParams,
         errors,
         validationLatencyMs: elapsed,
       };
@@ -74,6 +103,7 @@ export class ContractValidatorService {
     return {
       valid: true,
       contract,
+      pathParams,
       validationLatencyMs: elapsed,
     };
   }

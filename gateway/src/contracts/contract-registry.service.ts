@@ -8,7 +8,7 @@ import addFormats from 'ajv-formats';
 export interface CompensatingActionConfig {
   path: string;
   method: string;
-  mapping: Record<string, string>;
+  mapping?: Record<string, string>;
 }
 
 export interface EndpointContract {
@@ -21,6 +21,8 @@ export interface EndpointContract {
   compensatingAction?: CompensatingActionConfig;
   requestBodySchema?: any;
   validator?: ValidateFunction;
+  pathParamNames?: string[];
+  pathParamValidator?: ValidateFunction;
 }
 
 @Injectable()
@@ -33,7 +35,7 @@ export class ContractRegistryService implements OnModuleInit {
     this.ajv = new Ajv({
       allErrors: true,
       strict: false,
-      coerceTypes: true,
+      coerceTypes: false,
     });
     addFormats(this.ajv);
   }
@@ -43,9 +45,9 @@ export class ContractRegistryService implements OnModuleInit {
   }
 
   public loadContracts(contractsDir?: string) {
-    const dir = contractsDir || path.resolve(process.cwd(), '..', 'contracts');
-    if (!fs.existsSync(dir)) {
-      this.logger.warn(`Contracts directory not found at: ${dir}`);
+    const dir = this.resolveContractsDir(contractsDir);
+    if (!dir) {
+      this.logger.warn('Contracts directory not found in any standard search path.');
       return;
     }
 
@@ -61,7 +63,18 @@ export class ContractRegistryService implements OnModuleInit {
       }
     }
 
-    this.logger.log(`Loaded ${this.contracts.size} endpoint contracts into memory.`);
+    this.logger.log(`Loaded ${this.contracts.size} endpoint contracts from ${dir}.`);
+  }
+
+  private resolveContractsDir(explicitDir?: string): string | undefined {
+    const candidates = [
+      explicitDir,
+      process.env.CONTRACTS_DIR,
+      path.resolve(process.cwd(), 'contracts'),
+      path.resolve(process.cwd(), '..', 'contracts'),
+    ].filter((p): p is string => Boolean(p));
+
+    return candidates.find(candidate => fs.existsSync(candidate));
   }
 
   private parseOpenApiSpec(spec: any, filename: string) {
@@ -89,6 +102,12 @@ export class ContractRegistryService implements OnModuleInit {
           }
         }
 
+        const { pathParamNames, pathParamValidator } = this.compilePathParamValidator(
+          op.parameters,
+          httpMethod,
+          routePath
+        );
+
         const contractKey = this.getContractKey(httpMethod, routePath);
         this.contracts.set(contractKey, {
           serviceName,
@@ -100,6 +119,8 @@ export class ContractRegistryService implements OnModuleInit {
           compensatingAction,
           requestBodySchema,
           validator,
+          pathParamNames,
+          pathParamValidator,
         });
 
         this.logger.debug(`Registered contract: [${httpMethod}] ${routePath} (Action: ${actionType})`);
@@ -107,15 +128,53 @@ export class ContractRegistryService implements OnModuleInit {
     }
   }
 
+  private compilePathParamValidator(
+    parameters: any[] | undefined,
+    httpMethod: string,
+    routePath: string
+  ): { pathParamNames?: string[]; pathParamValidator?: ValidateFunction } {
+    if (!Array.isArray(parameters)) {
+      return {};
+    }
+
+    const pathParams = parameters.filter(p => p && p.in === 'path' && p.name);
+    if (pathParams.length === 0) {
+      return {};
+    }
+
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+    const names: string[] = [];
+
+    for (const param of pathParams) {
+      names.push(param.name);
+      properties[param.name] = param.schema || { type: 'string' };
+      if (param.required !== false) {
+        required.push(param.name);
+      }
+    }
+
+    try {
+      const compiled = this.ajv.compile({
+        type: 'object',
+        required,
+        properties,
+        additionalProperties: false,
+      });
+      return { pathParamNames: names, pathParamValidator: compiled };
+    } catch (e: any) {
+      this.logger.error(`Error compiling path schema for ${httpMethod} ${routePath}: ${e.message}`);
+      return { pathParamNames: names };
+    }
+  }
+
   public getContract(method: string, routePath: string): EndpointContract | undefined {
-    // Exact match first
     const exactKey = this.getContractKey(method.toUpperCase(), routePath);
     if (this.contracts.has(exactKey)) {
       return this.contracts.get(exactKey);
     }
 
-    // Pattern/parameter match: /api/v1/hr/employees/{employeeId}/status vs /api/v1/hr/employees/EMP-00104/status
-    for (const [key, contract] of this.contracts.entries()) {
+    for (const contract of this.contracts.values()) {
       if (contract.method !== method.toUpperCase()) continue;
       if (this.matchParameterizedPath(contract.path, routePath)) {
         return contract;
@@ -123,6 +182,26 @@ export class ContractRegistryService implements OnModuleInit {
     }
 
     return undefined;
+  }
+
+  public extractPathParams(templatePath: string, actualPath: string): Record<string, string> {
+    const templateParts = templatePath.split('/');
+    const actualParts = actualPath.split('/');
+    const extracted: Record<string, string> = {};
+
+    if (templateParts.length !== actualParts.length) {
+      return extracted;
+    }
+
+    for (let i = 0; i < templateParts.length; i++) {
+      const t = templateParts[i];
+      if (t.startsWith('{') && t.endsWith('}')) {
+        const paramName = t.slice(1, -1);
+        extracted[paramName] = decodeURIComponent(actualParts[i] || '');
+      }
+    }
+
+    return extracted;
   }
 
   public getAllContracts(): EndpointContract[] {
@@ -143,7 +222,6 @@ export class ContractRegistryService implements OnModuleInit {
       const t = templateParts[i];
       const a = actualParts[i];
       if (t.startsWith('{') && t.endsWith('}')) {
-        // Parameter segment matches anything non-empty
         if (!a) return false;
       } else if (t !== a) {
         return false;

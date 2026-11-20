@@ -39,6 +39,7 @@ services:
     container_name: agentsaga-gateway
     environment:
       PORT: 8080
+      CONTRACTS_DIR: /app/contracts
       DATABASE_URL: postgres://saga_admin:saga_secure_password@postgres:5432/agentsaga_journal
       UPSTREAM_SERVICES_URL: http://enterprise-services:3000
     ports:
