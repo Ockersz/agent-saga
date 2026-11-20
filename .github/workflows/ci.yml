@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  gateway-test:
+    name: Gateway Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+          cache-dependency-path: gateway/package-lock.json
+
+      - name: Install Gateway Dependencies
+        run: |
+          cd gateway
+          npm ci
+
+      - name: Run Gateway Unit & SAGA Tests
+        run: |
+          cd gateway
+          npm test
+
+      - name: Build Gateway
+        run: |
+          cd gateway
+          npm run build
+
+  services-build:
+    name: Enterprise Mock Services Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+          cache-dependency-path: services/package-lock.json
+
+      - name: Install Services Dependencies
+        run: |
+          cd services
+          npm ci
+
+      - name: Build Services Mesh
+        run: |
+          cd services
+          npm run build
+
+  benchmark-eval:
+    name: Empirical Benchmark Evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Benchmark Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r eval-harness/requirements.txt
+
+      - name: Run Empirical Benchmark (1,000 runs)
+        run: |
+          python eval-harness/benchmark_runner.py

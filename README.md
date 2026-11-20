@@ -1,5 +1,6 @@
 # AgentSaga-Gateway (ASG)
 
+[![CI](https://github.com/Ockersz/agent-saga/actions/workflows/ci.yml/badge.svg)](https://github.com/Ockersz/agent-saga/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1-green.svg)](https://spec.openapis.org/oas/v3.1.0)
 [![Architecture: Zero--Trust](https://img.shields.io/badge/Architecture-Zero--Trust-orange.svg)](#architecture)
