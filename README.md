@@ -46,6 +46,80 @@ AgentSaga-Gateway sits as a non-blocking reverse proxy between autonomous AI age
 
 ---
 
+## 🎬 Visual Scenarios: AgentSaga in Action
+
+### Scenario 1: Intercepting Schema Drift at the Network Edge (Zero-Trust Shield)
+When an autonomous agent generates a malformed payload (missing mandatory fields or hallucinating enum values), AgentSaga-Gateway intercepts and rejects it at the perimeter in **< 2ms**—preventing downstream database corruption.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Agent as Autonomous AI Agent
+    participant GW as AgentSaga Gateway
+    participant Payroll as Payroll Microservice (DB)
+
+    Agent->>GW: POST /api/v1/payroll/settlement<br/>{ employeeId: "EMP-00104", currency: "BITCOIN" }
+    Note over GW: Intercepted at Network Edge<br/>Validating against OpenAPI 3.1 Contract
+    Note over GW: ❌ Contract Violation Detected:<br/>• Missing required property: 'amount'<br/>• Disallowed enum value: 'BITCOIN'
+    GW-->>Agent: HTTP 400 Bad Request (Violations Payload)<br/>⏱️ Latency: 1.25ms
+    Note over Payroll: 🛡️ Downstream Protected: 0 calls forwarded, 0 DB writes
+```
+
+---
+
+### Scenario 2: Mid-Workflow Crash & Automated SAGA Rollback (The Undo Button)
+In an enterprise multi-step workflow (e.g., offboarding: HR $\rightarrow$ Payroll $\rightarrow$ Notification), if the final step crashes with a `504 Gateway Timeout`, standard agent frameworks abort and leave orphan records. AgentSaga-Gateway **automatically triggers reverse-order SAGA compensation** to restore total database consistency.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Agent as Autonomous AI Agent
+    participant GW as AgentSaga Gateway
+    participant HR as HR Microservice
+    participant Payroll as Payroll Microservice
+    participant Email as Notification Microservice
+
+    Note over Agent,Email: [Phase 1: Forward Execution]
+    Agent->>GW: Step 1: POST /hr/employees/EMP-00104/status (INACTIVE)
+    GW->>HR: Forward: Set status -> INACTIVE
+    HR-->>GW: 200 OK (Status Updated)
+    Note over GW: Journaled Step 1 (Compensatable)
+    GW-->>Agent: 200 OK
+
+    Agent->>GW: Step 2: POST /payroll/settlement (Deduct fee)
+    GW->>Payroll: Forward: Record deduction
+    Payroll-->>GW: 201 Created (settlementId: uuid-88)
+    Note over GW: Journaled Step 2 (Compensatable)
+    GW-->>Agent: 201 Created
+
+    Agent->>GW: Step 3: POST /notifications/clearance-email
+    GW->>Email: Forward: Dispatch email
+    Email-->>GW: ❌ HTTP 504 Gateway Timeout (SMTP Relay Dead)
+    Note over GW: ⚠️ Downstream Failure Detected! Activating SAGA Rollback
+
+    Note over Agent,Email: [Phase 2: Automated Backward Recovery (Reverse Topological Order)]
+    GW->>Payroll: Inverse Step 2: POST /settlement/uuid-88/reversal
+    Payroll-->>GW: 200 OK (Settlement marked REVERSED)
+
+    GW->>HR: Inverse Step 1: POST /hr/employees/EMP-00104/status (ACTIVE)
+    HR-->>GW: 200 OK (Status restored to ACTIVE)
+
+    GW-->>Agent: HTTP 502 Bad Gateway (SAGA Compensation Complete)<br/>All databases cleanly restored to baseline!
+```
+
+---
+
+### Scenario 3: The Pivot Transaction Pattern (Irreversible Actions)
+Certain actions cannot be programmatically rolled back (e.g., customer emails, physical warehouse dispatch, irreversible wire transfers). AgentSaga enforces execution barriers using the `pivot` action type:
+
+| Action Classification | OpenAPI Extension | Behavior & Safety Invariant |
+| :--- | :--- | :--- |
+| **Compensatable** | `x-agentsaga-action-type: compensatable` | Executed during forward phase. Paired with explicit `x-agentsaga-compensating-action` inverse endpoint. |
+| **Pivot** | `x-agentsaga-action-type: pivot` | **Irreversible terminal action.** Can **only** execute after all preceding compensatable operations have succeeded and committed. If an earlier step fails, the pivot never fires. |
+| **Retriable** | `x-agentsaga-action-type: retriable` | Guaranteed idempotent endpoint executed with exponential backoff. |
+
+---
+
 ## 📁 Repository Structure
 
 ```
