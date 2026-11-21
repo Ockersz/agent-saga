@@ -138,7 +138,7 @@ CREATE TYPE step_status AS ENUM (
 
 -- Master Workflow Table
 CREATE TABLE saga_workflows (
-    workflow_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workflow_id VARCHAR(128) PRIMARY KEY,
     agent_id VARCHAR(64) NOT NULL,
     session_id VARCHAR(128) NOT NULL,
     status saga_status NOT NULL DEFAULT 'STARTED',
@@ -148,8 +148,8 @@ CREATE TABLE saga_workflows (
 
 -- Per-Step Transaction Journal
 CREATE TABLE saga_step_journal (
-    step_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    workflow_id UUID NOT NULL REFERENCES saga_workflows(workflow_id) ON DELETE CASCADE,
+    step_id VARCHAR(128) PRIMARY KEY,
+    workflow_id VARCHAR(128) NOT NULL REFERENCES saga_workflows(workflow_id) ON DELETE CASCADE,
     step_index INT NOT NULL,
     target_service VARCHAR(64) NOT NULL,
     target_path VARCHAR(255) NOT NULL,
@@ -194,38 +194,46 @@ To validate system reliability and performance under production enterprise condi
 ## 6. Directory Layout
 
 ```
-Road to UoM/
-├── ARCHITECTURE.md              # Master System Specification (This Document)
-├── ROADMAP.md                   # Chronological Timeline & Milestones to July 2027
+agent-saga/
+├── ARCHITECTURE.md                  # Master System Specification (This Document)
+├── README.md                        # Project Overview, Architecture Scenarios & Quickstart
+├── ROADMAP.md                       # Engineering Release Milestones & Benchmarking Plan
+├── docker-compose.yml               # Orchestrates PostgreSQL 16, Services, and Gateway
 │
-├── contracts/                   # OpenAPI 3.1 Specs with x-agentsaga extensions
+├── contracts/                       # OpenAPI 3.1 Specs with x-agentsaga-* extensions
 │   ├── hr-service.yaml
 │   ├── payroll-service.yaml
 │   └── notification-service.yaml
 │
-├── gateway/                     # Core Gateway (TypeScript / NestJS / Fastify)
+├── gateway/                         # Core Gateway (TypeScript / NestJS)
 │   ├── src/
-│   │   ├── validator/          # OpenAPI 3.1 & Ajv schema validation engine
-│   │   ├── policy/             # Dynamic risk & invariant evaluator
-│   │   ├── saga/               # SAGA journal recorder & rollback coordinator
-│   │   ├── proxy/              # High-throughput reverse proxy handler
-│   │   └── database/           # PostgreSQL SAGA journal entities & migrations
+│   │   ├── contracts/               # OpenAPI 3.1 contract loader & Ajv compiler
+│   │   ├── validator/               # Path & JSON body contract validation engine
+│   │   ├── policy/                  # Dynamic risk, allowlist & threshold evaluator
+│   │   ├── saga/                    # SAGA journal recorder & inverse compensator
+│   │   ├── proxy/                   # Reverse proxy controller & pivot invariant gate
+│   │   └── database/                # PostgreSQL 16 journal DDL (schema.sql)
+│   ├── test/                        # Jest integration & orchestration test suites
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── Dockerfile
 │
-├── services/                    # Mock Enterprise Microservices
-│   ├── hr-service/             # NestJS / TypeScript
-│   ├── payroll-service/        # Spring Boot / PostgreSQL
-│   └── docker-compose.yml       # Orchestrates gateway, services, and Postgres
+├── services/                        # Mock Enterprise Microservices (Express / TypeScript)
+│   ├── src/
+│   │   └── server.ts                # HR, Payroll, Notification & state inspection APIs
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── Dockerfile
 │
-├── eval-harness/                # IEEE Benchmark & Fault Injection Suite
-│   ├── benchmark_runner.py     # Simulates 1,000 multi-step agent flows
-│   ├── fault_injector.py       # Injects schema drift, mid-flight timeouts, hallucinations
-│   └── generate_charts.py      # Produces IEEE publication-ready LaTeX / PDF figures
+├── eval-harness/                    # Live HTTP & Concurrency Benchmark Suite
+│   ├── benchmark_runner.py          # 1,000-workflow E2E safety, recovery & latency suite
+│   ├── concurrency_benchmark.py     # 800-workflow multi-agent stress & isolation suite
+│   ├── live_llm_agent_eval.py       # Optional live Gemini REST agent evaluator
+│   ├── data/                        # Empirical JSON summaries & CSV run logs
+│   └── requirements.txt
 │
-└── paper/                       # IEEE MERCon 2027 Paper
-    ├── main.tex                # IEEE double-column template
-    ├── references.bib          # Bibliography (RefineAct, SagaLLM, Wu et al.)
-    └── figures/                # Benchmark plots & architecture diagrams
+└── paper/                           # Academic Research Manuscript (IEEE double-column format)
+    ├── main.tex                     # IEEE double-column template
+    ├── references.bib               # Bibliography
+    └── figures/                     # Architecture diagrams & empirical benchmark plots
 ```
