@@ -26,13 +26,14 @@ This document outlines the development lifecycle, feature releases, and experime
   - Schema & type hallucinations (missing fields, enum drift, path regex violations, string-for-number type drift).
   - Policy threshold violations (unauthorized monetary limits).
   - Downstream HTTP 504 gateway timeout aborts + post-abort pivot replay verification.
-- [x] **Live Empirical Metrics Collection (N = 1,000 + 800 Concurrent):**
+- [x] **Live Empirical Metrics Collection (N = 2,000 Workflows Across Dual Journal Backends + 800 Concurrent):**
   - Schema defect interception: 100.0% blocked at edge (`400 Bad Request`, 0 DB mutations).
   - Policy threshold enforcement: 100.0% blocked at gate (`403 Forbidden`, 0 DB mutations).
   - Distributed state recovery: 100.0% restored via SAGA rollback + 100.0% post-abort pivot blocking.
-  - Runtime latency overhead: Schema + Policy Gate `P50 = 0.03ms` / `P95 = 0.04ms`; End-to-End Proxy Hop Delta `P50 = 1.80ms` / `P95 = 2.42ms`.
+  - Runtime latency overhead (In-Memory WAL, `N=1,000`): Schema + Policy Gate `P50 = 0.03ms` / `P95 = 0.04ms`; In-Gateway Mediation `P50 = 0.17ms` / `P95 = 0.21ms`; End-to-End Proxy Hop Delta `P50 = 1.80ms` / `P95 = 2.42ms`; SAGA Rollback `P50 = 10.91ms` / `P95 = 12.43ms`.
+  - Runtime latency overhead (PostgreSQL 16 Durable ACID, `N=1,000`): Schema + Policy Gate `P50 = 0.03ms` / `P95 = 0.04ms`; In-Gateway Mediation `P50 = 11.76ms` / `P95 = 13.53ms`; End-to-End Proxy Hop Delta `P50 = 13.45ms` / `P95 = 15.72ms`; SAGA Rollback `P50 = 60.93ms` / `P95 = 75.50ms` (`310 COMMITTED`, `300 COMPENSATED`, `1,830` persisted step rows verified via SQL).
   - Concurrency scaling (`C = 1..50`, `eval-harness/concurrency_benchmark.py`): Peak `708.1 req/s` (`C = 10`), `100.0%` cross-workflow state isolation up to `C = 50`.
-- [x] **PostgreSQL 16 CI Integration & Live LLM Evaluator:** CI runs live PostgreSQL 16 durable SAGA journal benchmarks on every push (`.github/workflows/ci.yml`), plus optional live Gemini evaluator (`eval-harness/live_llm_agent_eval.py`).
+- [x] **Docker Compose & PostgreSQL 16 CI Integration:** Containerized PostgreSQL 16 + Mock Services + Gateway stack (`docker-compose.yml` on configurable ports `5433`, `3010`, `8090`), CI live PostgreSQL 16 benchmark pipeline (`.github/workflows/ci.yml`), and optional live Gemini evaluator (`eval-harness/live_llm_agent_eval.py`).
 - [x] **Publication Figures Generated:** `paper/figures/fig1_safety_and_recovery.png`, `paper/figures/fig2_latency_cdf.png`, `paper/figures/fig3_concurrency_scaling.png`, `paper/figures/fig_system_architecture.png`, `paper/figures/fig_process_lifecycle.png`.
 - [x] **Camera-Ready Research Manuscript Draft:** Complete IEEE conference manuscript with live empirical benchmarks, concurrency scaling, declarative contract listing, formal SAGA mediation algorithm, and `\DOUBLEBLIND` toggle (`paper/main.tex`).
 

@@ -1,7 +1,7 @@
 -- PostgreSQL DDL for AgentSaga Distributed Transaction Journal
 
 CREATE TABLE IF NOT EXISTS saga_workflows (
-    workflow_id UUID PRIMARY KEY,
+    workflow_id VARCHAR(128) PRIMARY KEY,
     agent_id VARCHAR(64) NOT NULL,
     session_id VARCHAR(128) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'STARTED',
@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS saga_workflows (
 );
 
 CREATE TABLE IF NOT EXISTS saga_step_journal (
-    step_id UUID PRIMARY KEY,
-    workflow_id UUID NOT NULL REFERENCES saga_workflows(workflow_id) ON DELETE CASCADE,
+    step_id VARCHAR(128) PRIMARY KEY,
+    workflow_id VARCHAR(128) NOT NULL REFERENCES saga_workflows(workflow_id) ON DELETE CASCADE,
     step_index INT NOT NULL,
     target_service VARCHAR(64) NOT NULL,
     target_path VARCHAR(255) NOT NULL,

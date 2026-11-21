@@ -15,6 +15,7 @@ import sys
 import time
 import uuid
 from typing import Dict, Any, Tuple
+from urllib.parse import urlparse
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,8 +26,15 @@ import requests
 def check_url_ready(session: requests.Session, url: str, timeout_s: float = 0.5) -> bool:
     try:
         r = session.get(url, timeout=timeout_s)
-        return r.status_code < 500
-    except requests.RequestException:
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        if url.endswith("/api/v1/state"):
+            return isinstance(data, dict) and "employees" in data
+        if url.endswith("/health"):
+            return isinstance(data, dict) and data.get("service") == "agentsaga-gateway"
+        return True
+    except (requests.RequestException, ValueError):
         return False
 
 
@@ -40,7 +48,10 @@ def wait_until_ready(session: requests.Session, url: str, name: str, timeout_s: 
 
 
 def start_local_processes(
-    repo_root: str, database_url: str = ""
+    repo_root: str,
+    services_url: str = "http://127.0.0.1:3000",
+    gateway_url: str = "http://127.0.0.1:8080",
+    database_url: str = "",
 ) -> Tuple[subprocess.Popen, subprocess.Popen]:
     services_entry = os.path.join(repo_root, "services", "dist", "server.js")
     gateway_entry = os.path.join(repo_root, "gateway", "dist", "main.js")
@@ -51,13 +62,16 @@ def start_local_processes(
             "Compiled artifacts missing. Run `npm run build` in both `services/` and `gateway/` first."
         )
 
+    services_port = urlparse(services_url).port or 3000
+    gateway_port = urlparse(gateway_url).port or 8080
+
     env_services = os.environ.copy()
-    env_services["PORT"] = "3000"
+    env_services["PORT"] = str(services_port)
     env_services["BENCHMARK_QUIET"] = "1"
 
     env_gateway = os.environ.copy()
-    env_gateway["PORT"] = "8080"
-    env_gateway["UPSTREAM_SERVICES_URL"] = "http://127.0.0.1:3000"
+    env_gateway["PORT"] = str(gateway_port)
+    env_gateway["UPSTREAM_SERVICES_URL"] = services_url.rstrip("/")
     env_gateway["CONTRACTS_DIR"] = contracts_dir
     env_gateway["POLICY_MAX_AMOUNT"] = "500000"
     env_gateway["BENCHMARK_QUIET"] = "1"
@@ -148,7 +162,14 @@ def run_warmup(session: requests.Session, services_url: str, gateway_url: str, c
 
 
 def run_live_benchmark(
-    runs: int, services_url: str, gateway_url: str, spawn_local: bool, database_url: str = ""
+    runs: int,
+    services_url: str,
+    gateway_url: str,
+    spawn_local: bool,
+    database_url: str = "",
+    summary_out: str = "",
+    csv_out: str = "",
+    skip_figures: bool = False,
 ):
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.makedirs(os.path.join(repo_root, "paper", "figures"), exist_ok=True)
@@ -163,8 +184,13 @@ def run_live_benchmark(
             session, f"{gateway_url}/health"
         )
         if spawn_local and not already_up:
-            print("Starting local Enterprise Services (:3000) & AgentSaga Gateway (:8080)...")
-            svc_proc, gw_proc = start_local_processes(repo_root, database_url=database_url)
+            print(f"Starting local Enterprise Services ({services_url}) & AgentSaga Gateway ({gateway_url})...")
+            svc_proc, gw_proc = start_local_processes(
+                repo_root,
+                services_url=services_url,
+                gateway_url=gateway_url,
+                database_url=database_url,
+            )
             wait_until_ready(session, f"{services_url}/api/v1/state", "Enterprise Services")
             wait_until_ready(session, f"{gateway_url}/health", "AgentSaga Gateway")
         elif not already_up:
@@ -586,7 +612,12 @@ def run_live_benchmark(
         # Aggregate Metrics & Save Artifacts
         # ---------------------------------------------------------------------
         df = pd.DataFrame(records)
-        csv_path = os.path.join(repo_root, "eval-harness", "data", "benchmark_metrics.csv")
+        csv_path = (
+            os.path.abspath(csv_out)
+            if csv_out
+            else os.path.join(repo_root, "eval-harness", "data", "benchmark_metrics.csv")
+        )
+        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         df.to_csv(csv_path, index=False)
 
         schema_df = df[df["suite"] == "schema_hallucination"]
@@ -638,7 +669,12 @@ def run_live_benchmark(
             },
         }
 
-        summary_path = os.path.join(repo_root, "eval-harness", "data", "benchmark_summary.json")
+        summary_path = (
+            os.path.abspath(summary_out)
+            if summary_out
+            else os.path.join(repo_root, "eval-harness", "data", "benchmark_summary.json")
+        )
+        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
 
@@ -646,6 +682,7 @@ def run_live_benchmark(
         print(f"LIVE EMPIRICAL EVALUATION SUMMARY (N = {len(df)} HTTP Workflows)")
         print("------------------------------------------------------------------")
         print(f"Environment: {summary['environment']['os']} | Node {summary['environment']['node']} | Python {summary['environment']['python']}")
+        print(f"Journal Mode: {summary['journal_mode']}")
         print(f"RQ1  Schema Defect Interception:   Baseline {summary['rq1_schema_interception_pct']['baseline']:.1f}% | AgentSaga {summary['rq1_schema_interception_pct']['agentsaga']:.1f}%")
         print(f"RQ1b Policy Threshold Enforcement: Baseline {summary['rq1b_policy_enforcement_pct']['baseline']:.1f}% | AgentSaga {summary['rq1b_policy_enforcement_pct']['agentsaga']:.1f}%")
         print(f"RQ2  SAGA State Consistency Recov: Baseline {summary['rq2_state_recovery_pct']['baseline']:.1f}% | AgentSaga {summary['rq2_state_recovery_pct']['agentsaga']:.1f}% (Pivot Guard {summary['rq2_state_recovery_pct']['pivot_blocked_after_abort_pct']:.1f}%)")
@@ -657,8 +694,9 @@ def run_live_benchmark(
         print(f"RQ3  Live SAGA Rollback Workflow:  P50 {lat['saga_rollback_wf_p50']:.2f}ms | P95 {lat['saga_rollback_wf_p95']:.2f}ms")
         print("------------------------------------------------------------------\n")
 
-        generate_figures(repo_root, summary, nom_df)
-        print("Live benchmark and publication figures generated successfully!")
+        if not skip_figures:
+            generate_figures(repo_root, summary, nom_df)
+        print("Live benchmark completed successfully!")
 
     finally:
         for proc in (gw_proc, svc_proc):
@@ -785,9 +823,21 @@ def main():
     parser.add_argument("--spawn-local", action="store_true", default=True, help="Spawn local Node processes if ports are down")
     parser.add_argument("--no-spawn", dest="spawn_local", action="store_false", help="Fail instead of spawning local processes")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""), help="Optional PostgreSQL connection string for durable SAGA journal mode")
+    parser.add_argument("--summary-out", default="", help="Optional custom output path for summary JSON")
+    parser.add_argument("--csv-out", default="", help="Optional custom output path for metrics CSV")
+    parser.add_argument("--skip-figures", action="store_true", help="Skip overwriting paper/figures PNGs")
     args = parser.parse_args()
 
-    run_live_benchmark(args.runs, args.services_url, args.gateway_url, args.spawn_local, database_url=args.database_url)
+    run_live_benchmark(
+        args.runs,
+        args.services_url,
+        args.gateway_url,
+        args.spawn_local,
+        database_url=args.database_url,
+        summary_out=args.summary_out,
+        csv_out=args.csv_out,
+        skip_figures=args.skip_figures,
+    )
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from typing import Dict, Any, List, Tuple
+from urllib.parse import urlparse
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,8 +41,15 @@ def get_thread_session() -> requests.Session:
 def check_url_ready(session: requests.Session, url: str, timeout_s: float = 0.5) -> bool:
     try:
         r = session.get(url, timeout=timeout_s)
-        return r.status_code < 500
-    except requests.RequestException:
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        if url.endswith("/api/v1/state"):
+            return isinstance(data, dict) and "employees" in data
+        if url.endswith("/health"):
+            return isinstance(data, dict) and data.get("service") == "agentsaga-gateway"
+        return True
+    except (requests.RequestException, ValueError):
         return False
 
 
@@ -54,7 +62,12 @@ def wait_until_ready(session: requests.Session, url: str, name: str, timeout_s: 
     raise RuntimeError(f"Timed out waiting for {name} at {url}")
 
 
-def start_local_processes(repo_root: str) -> Tuple[subprocess.Popen, subprocess.Popen]:
+def start_local_processes(
+    repo_root: str,
+    services_url: str = "http://127.0.0.1:3000",
+    gateway_url: str = "http://127.0.0.1:8080",
+    database_url: str = "",
+) -> Tuple[subprocess.Popen, subprocess.Popen]:
     services_entry = os.path.join(repo_root, "services", "dist", "server.js")
     gateway_entry = os.path.join(repo_root, "gateway", "dist", "main.js")
     contracts_dir = os.path.join(repo_root, "contracts")
@@ -64,16 +77,23 @@ def start_local_processes(repo_root: str) -> Tuple[subprocess.Popen, subprocess.
             "Compiled artifacts missing. Run `npm run build` in both `services/` and `gateway/` first."
         )
 
+    services_port = urlparse(services_url).port or 3000
+    gateway_port = urlparse(gateway_url).port or 8080
+
     env_services = os.environ.copy()
-    env_services["PORT"] = "3000"
+    env_services["PORT"] = str(services_port)
     env_services["BENCHMARK_QUIET"] = "1"
 
     env_gateway = os.environ.copy()
-    env_gateway["PORT"] = "8080"
-    env_gateway["UPSTREAM_SERVICES_URL"] = "http://127.0.0.1:3000"
+    env_gateway["PORT"] = str(gateway_port)
+    env_gateway["UPSTREAM_SERVICES_URL"] = services_url.rstrip("/")
     env_gateway["CONTRACTS_DIR"] = contracts_dir
     env_gateway["POLICY_MAX_AMOUNT"] = "500000"
     env_gateway["BENCHMARK_QUIET"] = "1"
+    if database_url:
+        env_gateway["DATABASE_URL"] = database_url
+    else:
+        env_gateway.pop("DATABASE_URL", None)
 
     svc_proc = subprocess.Popen(
         ["node", services_entry],
@@ -165,7 +185,11 @@ def execute_single_workflow(
 
 
 def run_concurrency_benchmark(
-    workflows_per_tier: int, services_url: str, gateway_url: str, spawn_local: bool
+    workflows_per_tier: int,
+    services_url: str,
+    gateway_url: str,
+    spawn_local: bool,
+    database_url: str = "",
 ):
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.makedirs(os.path.join(repo_root, "paper", "figures"), exist_ok=True)
@@ -180,8 +204,13 @@ def run_concurrency_benchmark(
             session, f"{gateway_url}/health"
         )
         if spawn_local and not already_up:
-            print("Starting local Enterprise Services (:3000) & AgentSaga Gateway (:8080)...")
-            svc_proc, gw_proc = start_local_processes(repo_root)
+            print(f"Starting local Enterprise Services ({services_url}) & AgentSaga Gateway ({gateway_url})...")
+            svc_proc, gw_proc = start_local_processes(
+                repo_root,
+                services_url=services_url,
+                gateway_url=gateway_url,
+                database_url=database_url,
+            )
             wait_until_ready(session, f"{services_url}/api/v1/state", "Enterprise Services")
             wait_until_ready(session, f"{gateway_url}/health", "AgentSaga Gateway")
         elif not already_up:
@@ -276,6 +305,7 @@ def run_concurrency_benchmark(
         summary = {
             "workflows_per_tier": workflows_per_tier,
             "total_workflows": workflows_per_tier * len(concurrency_tiers),
+            "journal_mode": "postgresql" if database_url else "in-memory",
             "environment": {
                 "os": f"{platform.system()} {platform.release()}",
                 "python": platform.python_version(),
@@ -374,9 +404,16 @@ def main():
     parser.add_argument("--gateway-url", default="http://127.0.0.1:8080", help="Base URL for AgentSaga gateway")
     parser.add_argument("--spawn-local", action="store_true", default=True, help="Spawn local Node processes if ports are down")
     parser.add_argument("--no-spawn", dest="spawn_local", action="store_false", help="Fail instead of spawning local processes")
+    parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL", ""), help="Optional PostgreSQL connection string for durable SAGA journal mode")
     args = parser.parse_args()
 
-    run_concurrency_benchmark(args.workflows_per_tier, args.services_url, args.gateway_url, args.spawn_local)
+    run_concurrency_benchmark(
+        args.workflows_per_tier,
+        args.services_url,
+        args.gateway_url,
+        args.spawn_local,
+        database_url=args.database_url,
+    )
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: saga_secure_password
       POSTGRES_DB: agentsaga_journal
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./gateway/src/database/schema.sql:/docker-entrypoint-initdb.d/init.sql
@@ -25,7 +25,7 @@ services:
     environment:
       PORT: 3000
     ports:
-      - "3000:3000"
+      - "${SERVICES_HOST_PORT:-3010}:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget --spider http://localhost:3000/api/v1/state || exit 1"]
       interval: 5s
@@ -43,7 +43,7 @@ services:
       DATABASE_URL: postgres://saga_admin:saga_secure_password@postgres:5432/agentsaga_journal
       UPSTREAM_SERVICES_URL: http://enterprise-services:3000
     ports:
-      - "8080:8080"
+      - "${GATEWAY_HOST_PORT:-8090}:8080"
     volumes:
       - ./contracts:/app/contracts:ro
     depends_on:

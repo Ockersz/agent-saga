@@ -137,7 +137,48 @@ Certain actions cannot be programmatically rolled back (e.g., customer emails, p
 
 ---
 
-## 🚀 Quickstart & Documentation
+## 🚀 Quickstart & Empirical Verification
+
+### 1. Run with Docker Compose (PostgreSQL 16 + Mock Services + Gateway)
+Host ports default to non-conflicting bindings (`POSTGRES_HOST_PORT=5433`, `SERVICES_HOST_PORT=3010`, `GATEWAY_HOST_PORT=8090`) and can be overridden via environment variables:
+
+```bash
+docker compose up -d --build
+curl http://127.0.0.1:8090/health
+```
+
+### 2. Local Build, Tests & Live Benchmarks
+```bash
+# Build & test gateway (Ajv validation, Policy gate, SAGA orchestration)
+cd gateway && npm ci && npm run build && npm test
+
+# Build enterprise mock services
+cd ../services && npm ci && npm run build && cd ..
+
+# Run 1,000-workflow benchmark (in-memory WAL mode)
+python eval-harness/benchmark_runner.py --runs 1000 --services-url http://127.0.0.1:3010 --gateway-url http://127.0.0.1:8090
+
+# Run 1,000-workflow benchmark (PostgreSQL 16 durable ACID journal mode)
+python eval-harness/benchmark_runner.py --runs 1000 --services-url http://127.0.0.1:3010 --gateway-url http://127.0.0.1:8090 --database-url postgres://saga_admin:saga_secure_password@127.0.0.1:5433/agentsaga_journal --summary-out eval-harness/data/benchmark_postgres_summary.json --skip-figures
+
+# Run 800-workflow multi-agent concurrency benchmark (C = 1, 10, 25, 50)
+python eval-harness/concurrency_benchmark.py --workflows-per-tier 200 --services-url http://127.0.0.1:3010 --gateway-url http://127.0.0.1:8090
+```
+
+### 3. Live Empirical Results Summary
+| Metric | Baseline (Direct) | AgentSaga (Mem WAL) | AgentSaga (PostgreSQL 16) |
+| :--- | :---: | :---: | :---: |
+| Schema Interception (`RQ1`, `N=300`) | 0.0% | **100.0%** | **100.0%** |
+| Policy Enforcement (`RQ1b`, `N=100`) | 0.0% | **100.0%** | **100.0%** |
+| SAGA State Recovery (`RQ2`, `N=300`) | 0.0% | **100.0%** | **100.0%** |
+| Post-Abort Pivot Blocking (`409`) | 0.0% | **100.0%** | **100.0%** |
+| Validation + Policy Gate (`P50/P95`) | N/A | 0.03 / 0.04 ms | 0.03 / 0.04 ms |
+| Proxy Hop Delta (`P50/P95`) | N/A | 1.80 / 2.42 ms | 13.45 / 15.72 ms |
+| Full SAGA Rollback (`P50/P95`) | N/A | 10.91 / 12.43 ms | 60.93 / 75.50 ms |
+
+---
+
+## 📚 Additional Documentation
 
 * Read the detailed technical blueprint: [ARCHITECTURE.md](ARCHITECTURE.md)
 * View the upcoming development milestones: [ROADMAP.md](ROADMAP.md)

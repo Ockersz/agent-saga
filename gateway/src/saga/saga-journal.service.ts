@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -34,7 +34,7 @@ export interface StepRecord {
 }
 
 @Injectable()
-export class SagaJournalService {
+export class SagaJournalService implements OnModuleDestroy {
   private readonly logger = new Logger(SagaJournalService.name);
   private pool?: Pool;
 
@@ -49,6 +49,12 @@ export class SagaJournalService {
       this.logger.log('Connected to PostgreSQL for SAGA Journal storage.');
     } else {
       this.logger.log('Running SAGA Journal in high-performance in-memory mode.');
+    }
+  }
+
+  public async onModuleDestroy(): Promise<void> {
+    if (this.pool) {
+      await this.pool.end();
     }
   }
 
@@ -83,10 +89,16 @@ export class SagaJournalService {
         return existing;
       }
 
-      await this.pool.query(
-        'INSERT INTO saga_workflows (workflow_id, agent_id, session_id, status) VALUES ($1, $2, $3, $4)',
+      const insertRes = await this.pool.query(
+        'INSERT INTO saga_workflows (workflow_id, agent_id, session_id, status) VALUES ($1, $2, $3, $4) ON CONFLICT (workflow_id) DO NOTHING',
         [workflowId, agentId, sessionId, 'IN_PROGRESS']
       );
+      if (insertRes.rowCount === 0) {
+        const conflicted = await this.getWorkflow(workflowId);
+        if (conflicted) {
+          return conflicted;
+        }
+      }
       return {
         workflowId,
         agentId,
@@ -167,9 +179,18 @@ export class SagaJournalService {
     if (this.pool) {
       await this.pool.query(
         `UPDATE saga_step_journal
-         SET status = $1, forward_response_body = $2, forward_status_code = $3, execution_latency_ms = $4
+         SET status = $1,
+             forward_response_body = COALESCE($2::jsonb, forward_response_body),
+             forward_status_code = COALESCE($3, forward_status_code),
+             execution_latency_ms = COALESCE($4, execution_latency_ms)
          WHERE step_id = $5`,
-        [status, responseBody ? JSON.stringify(responseBody) : null, statusCode, latencyMs, stepId]
+        [
+          status,
+          responseBody !== undefined ? JSON.stringify(responseBody) : null,
+          statusCode !== undefined ? statusCode : null,
+          latencyMs !== undefined ? latencyMs : null,
+          stepId,
+        ]
       );
     }
 
