@@ -34,8 +34,6 @@ This document outlines the development lifecycle, feature releases, and experime
   - Runtime latency overhead (PostgreSQL 16 Durable ACID, `N=1,000`): Schema + Policy Gate `P50 = 0.03ms` / `P95 = 0.04ms`; In-Gateway Mediation `P50 = 11.76ms` / `P95 = 13.53ms`; End-to-End Proxy Hop Delta `P50 = 13.45ms` / `P95 = 15.72ms`; SAGA Rollback `P50 = 60.93ms` / `P95 = 75.50ms` (`310 COMMITTED`, `300 COMPENSATED`, `1,830` persisted step rows verified via SQL).
   - Concurrency scaling (`C = 1..50`, `eval-harness/concurrency_benchmark.py`): Peak `708.1 req/s` (`C = 10`), `100.0%` cross-workflow state isolation up to `C = 50`.
 - [x] **Docker Compose & PostgreSQL 16 CI Integration:** Containerized PostgreSQL 16 + Mock Services + Gateway stack (`docker-compose.yml` on configurable ports `5433`, `3010`, `8090`), CI live PostgreSQL 16 benchmark pipeline (`.github/workflows/ci.yml`), and optional live Gemini evaluator (`eval-harness/live_llm_agent_eval.py`).
-- [x] **Publication Figures Generated:** `paper/figures/fig1_safety_and_recovery.png`, `paper/figures/fig2_latency_cdf.png`, `paper/figures/fig3_concurrency_scaling.png`, `paper/figures/fig_system_architecture.png`, `paper/figures/fig_process_lifecycle.png`.
-- [x] **Camera-Ready Research Manuscript Draft:** Complete IEEE conference manuscript with live empirical benchmarks, concurrency scaling, declarative contract listing, formal SAGA mediation algorithm, and `\DOUBLEBLIND` toggle (`paper/main.tex`).
 
 ### Phase 4: Production Hardening & Ecosystem Integrations (v1.0.0-GA)
 - [ ] **MCP (Model Context Protocol) Bridge:** Native adapter exposing verified microservice tool registries to Anthropic MCP clients.

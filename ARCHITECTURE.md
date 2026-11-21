@@ -196,9 +196,12 @@ To validate system reliability and performance under production enterprise condi
 ```
 agent-saga/
 ├── ARCHITECTURE.md                  # Master System Specification (This Document)
-├── README.md                        # Project Overview, Architecture Scenarios & Quickstart
+├── LICENSE                          # Apache License 2.0
+├── README.md                        # Project Overview, Walkthrough & Reproducibility
 ├── ROADMAP.md                       # Engineering Release Milestones & Benchmarking Plan
+├── .env.example                     # Gateway, Policy & Docker Port Configuration
 ├── docker-compose.yml               # Orchestrates PostgreSQL 16, Services, and Gateway
+├── .github/workflows/ci.yml         # CI Build, Jest Tests & PostgreSQL 16 Benchmark
 │
 ├── contracts/                       # OpenAPI 3.1 Specs with x-agentsaga-* extensions
 │   ├── hr-service.yaml
@@ -225,15 +228,11 @@ agent-saga/
 │   ├── tsconfig.json
 │   └── Dockerfile
 │
-├── eval-harness/                    # Live HTTP & Concurrency Benchmark Suite
-│   ├── benchmark_runner.py          # 1,000-workflow E2E safety, recovery & latency suite
-│   ├── concurrency_benchmark.py     # 800-workflow multi-agent stress & isolation suite
-│   ├── live_llm_agent_eval.py       # Optional live Gemini REST agent evaluator
-│   ├── data/                        # Empirical JSON summaries & CSV run logs
-│   └── requirements.txt
-│
-└── paper/                           # Academic Research Manuscript (IEEE double-column format)
-    ├── main.tex                     # IEEE double-column template
-    ├── references.bib               # Bibliography
-    └── figures/                     # Architecture diagrams & empirical benchmark plots
+└── eval-harness/                    # Live HTTP & Concurrency Benchmark Suite
+    ├── README.md                    # Benchmark Replication Guide
+    ├── benchmark_runner.py          # 1,000-workflow E2E safety, recovery & latency suite
+    ├── concurrency_benchmark.py     # 800-workflow multi-agent stress & isolation suite
+    ├── live_llm_agent_eval.py       # Optional live Gemini REST agent evaluator
+    ├── data/                        # Empirical JSON summaries & CSV run logs
+    └── requirements.txt
 ```

@@ -3,7 +3,7 @@
 AgentSaga-Gateway Live End-to-End HTTP Empirical Benchmark Harness
 Executes real HTTP workflows against live enterprise-services (:3000) and
 agentsaga-gateway (:8080), verifies downstream database state via GET /api/v1/state,
-records empirical latency & recovery metrics, and generates IEEE publication figures.
+records empirical latency & recovery metrics, and writes summary JSON/CSV artifacts.
 """
 
 import argparse

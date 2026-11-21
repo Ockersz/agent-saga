@@ -4,7 +4,7 @@ AgentSaga-Gateway Concurrent Multi-Agent Load & Workflow Isolation Benchmark
 Spawns N concurrent autonomous agent workers across C in [1, 10, 25, 50]
 executing mixed nominal and fault-injected 3-step workflows simultaneously,
 verifies 100% cross-workflow state isolation via GET /api/v1/state, and
-generates paper/figures/fig3_concurrency_scaling.png.
+writes scaling metrics to eval-harness/data/concurrency_summary.json.
 """
 
 import argparse

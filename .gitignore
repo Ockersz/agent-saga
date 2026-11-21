@@ -46,16 +46,8 @@ pgdata/
 *.sqlite
 *.db
 
-# LaTeX Compile Artifacts
-paper/*.aux
-paper/*.bbl
-paper/*.blg
-paper/*.log
-paper/*.out
-paper/*.toc
-paper/*.synctex.gz
-paper/*.fdb_latexmk
-paper/*.fls
+# Local Pre-Submission Research Manuscript (excluded from public repo)
+paper/
 
 # IDE, OS & System Files
 .idea/
